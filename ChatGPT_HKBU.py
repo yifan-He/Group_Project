@@ -22,8 +22,12 @@ class ChatGPT:
 
         # Define the system prompt to guide the assistant’s behavior
         self.system_message = (
-            'You are a helper! Your users are university students. '
-            'Your replies should be conversational, informative, use simple words, and be straightforward.'
+            'You are a travel helper for university students. '
+            'Be concise, direct, and practical. '
+            'Use simple language and keep responses to 3-6 short lines. '
+            'Do not ask follow-up questions. '
+            'If information is missing, make a reasonable assumption and provide the best answer directly. '
+            'Avoid long explanations, small talk, and repeated content.'
         )
 
     def submit(self, user_message: str):
@@ -38,8 +42,8 @@ class ChatGPT:
         payload = {
             "messages": messages,
             "temperature": 1,     # randomness of output (higher = more creative)
-            "max_tokens": 150,    # maximum length of the reply
-            "top_p": 1,           # nucleus sampling parameter
+            "max_tokens": 110,    # maximum length of the reply
+            "top_p": 1,         # nucleus sampling parameter
             "stream": False       # disable streaming, wait for full reply
         }    
 
@@ -52,19 +56,4 @@ class ChatGPT:
         else:
             # Otherwise return error details
             return "Error: " + response.text
-    
 
-if __name__ == '__main__':
-    # Load configuration from ini file
-    config = configparser.ConfigParser()
-    config.read('config.ini')    
-
-    # Initialize ChatGPT client
-    chatGPT = ChatGPT(config)
-
-    # Simple REPL loop: read user input, send to ChatGPT, print reply
-    while True:
-        print('Input your query: ', end='')
-        response = chatGPT.submit(input())
-
-        print(response)
