@@ -35,6 +35,12 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_KEY }}
 
+      - name: Upload deployment files (scp)
+        run: |
+          ssh -o StrictHostKeyChecking=no "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "mkdir -p ~/group_project"
+          scp -o StrictHostKeyChecking=no docker-compose.prod.yml "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/group_project/"
+          scp -o StrictHostKeyChecking=no config.ini "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/group_project/"
+
       - name: Deploy application
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
