@@ -26,7 +26,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ./docker_file
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/chatbot:latest
 
