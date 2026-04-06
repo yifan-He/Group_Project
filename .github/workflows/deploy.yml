@@ -54,13 +54,24 @@ jobs:
       - name: Deploy application
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          set -e
           mkdir -p ~/group_project
           cd ~/group_project
-          chmod 600 config.ini
+
+          if ! command -v docker >/dev/null 2>&1; then
+            sudo dnf install -y docker
+            sudo systemctl enable --now docker
+          fi
+
+          if ! docker compose version >/dev/null 2>&1; then
+            sudo dnf install -y docker-compose-plugin
+          fi
 
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
           export IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/chatbot"
+          docker compose -f docker-compose.yml config
           docker compose -f docker-compose.yml pull
           docker compose -f docker-compose.yml up -d --remove-orphans
+          docker compose -f docker-compose.yml ps
           docker image prune -f
           EOF
