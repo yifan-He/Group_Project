@@ -35,10 +35,20 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_KEY }}
 
+      - name: Create config.ini from secret
+        run: |
+          if [ -z "${{ secrets.CONFIG_INI }}" ]; then
+            echo "CONFIG_INI secret is missing"
+            exit 1
+          fi
+          cat > config.ini << 'EOT'
+          ${{ secrets.CONFIG_INI }}
+          EOT
+
       - name: Upload deployment files (scp)
         run: |
           ssh -o StrictHostKeyChecking=no "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "mkdir -p ~/group_project"
-          scp -o StrictHostKeyChecking=no docker-compose.prod.yml "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/group_project/"
+          scp -o StrictHostKeyChecking=no docker-compose.yml "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/group_project/"
           scp -o StrictHostKeyChecking=no config.ini "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/group_project/"
 
       - name: Deploy application
@@ -46,10 +56,11 @@ jobs:
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
           mkdir -p ~/group_project
           cd ~/group_project
+          chmod 600 config.ini
 
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
           export IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/chatbot"
-          docker compose -f docker-compose.prod.yml pull
-          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          docker compose -f docker-compose.yml pull
+          docker compose -f docker-compose.yml up -d --remove-orphans
           docker image prune -f
           EOF
