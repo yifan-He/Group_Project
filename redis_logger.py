@@ -1,20 +1,25 @@
 import json
 import redis
+import os
 from datetime import datetime, timedelta
 
 
 class RedisLogger:
     def __init__(self, config):
         decode_responses = (
-            str(config["REDIS"].get("DECODE_RESPONSES", "True")).lower() == "true"
+            str(
+                os.getenv("REDIS_DECODE_RESPONSES")
+                or config.get("REDIS", "DECODE_RESPONSES", fallback="True")
+            ).lower()
+            == "true"
         )
         
         # Read redis configuration values from the ini file
         self.redis_client = redis.Redis(
-            host=config["REDIS"]["HOST"],
-            port=int(config["REDIS"]["PORT"]),
-            username=config["REDIS"]["USERNAME"],
-            password=config["REDIS"]["PASSWORD"],
+            host=os.getenv("REDIS_HOST") or config.get("REDIS", "HOST", fallback=""),
+            port=int(os.getenv("REDIS_PORT") or config.get("REDIS", "PORT", fallback="6379")),
+            username=os.getenv("REDIS_USERNAME") or config.get("REDIS", "USERNAME", fallback=""),
+            password=os.getenv("REDIS_PASSWORD") or config.get("REDIS", "PASSWORD", fallback=""),
             decode_responses=decode_responses,
         )
 

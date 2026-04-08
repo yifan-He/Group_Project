@@ -14,6 +14,7 @@ from telegram.ext import (
 )
 import configparser
 import logging
+import os
 from ChatGPT_HKBU import ChatGPT
 from redis_logger import RedisLogger
 
@@ -46,7 +47,8 @@ def main():
     # Create an Application for your bot
     logging.info("INIT: Connecting the Telegram bot...")
     redis_logger.save_system_log("INFO", "INIT: Connecting the Telegram bot...")
-    app = ApplicationBuilder().token(config["TELEGRAM"]["ACCESS_TOKEN"]).build()
+    telegram_token = os.getenv("TELEGRAM_TOKEN") or config.get("TELEGRAM", "ACCESS_TOKEN", fallback="")
+    app = ApplicationBuilder().token(telegram_token).build()
 
     # Register message handlers
     logging.info("INIT: Registering the message handler...")
