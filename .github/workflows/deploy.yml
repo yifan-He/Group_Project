@@ -13,9 +13,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -44,35 +41,23 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
           set -e
-          mkdir -p ~/group_project
           cd ~/group_project
 
-          if ! command -v docker >/dev/null 2>&1; then
-            sudo dnf install -y docker
-            sudo systemctl enable --now docker
-          fi
-
-          sudo systemctl start docker || true
-
-          if ! command -v docker-compose >/dev/null 2>&1; then
-            sudo dnf install -y docker-compose
-          fi
+          cat > .env << EOT
+          IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/chatbot
+          TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}
+          CHATGPT_KEY=${{ secrets.CHATGPT_KEY }}
+          CHATGPT_URL=${{ secrets.CHATGPT_URL }}
+          CHATGPT_MODEL=${{ secrets.CHATGPT_MODEL }}
+          CHATGPT_VER=${{ secrets.CHATGPT_VER }}
+          REDIS_HOST=${{ secrets.REDIS_HOST }}
+          REDIS_PORT=${{ secrets.REDIS_PORT }}
+          REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          REDIS_DECODE_RESPONSES=${{ secrets.REDIS_DECODE_RESPONSES }}
+          EOT
 
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          export IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/chatbot"
-          export TELEGRAM_TOKEN="${{ secrets.TELEGRAM_TOKEN }}"
-          export CHATGPT_KEY="${{ secrets.CHATGPT_KEY }}"
-          export CHATGPT_URL="${{ secrets.CHATGPT_URL }}"
-          export CHATGPT_MODEL="${{ secrets.CHATGPT_MODEL }}"
-          export CHATGPT_VER="${{ secrets.CHATGPT_VER }}"
-          export REDIS_HOST="${{ secrets.REDIS_HOST }}"
-          export REDIS_PORT="${{ secrets.REDIS_PORT }}"
-          export REDIS_USERNAME="${{ secrets.REDIS_USERNAME }}"
-          export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
-          export REDIS_DECODE_RESPONSES="${{ secrets.REDIS_DECODE_RESPONSES }}"
-          docker-compose -f docker-compose.yml config
           docker-compose -f docker-compose.yml pull
           docker-compose -f docker-compose.yml up -d --remove-orphans
-          docker-compose -f docker-compose.yml ps
-          docker image prune -f
           EOF
