@@ -1,3 +1,7 @@
-# Group_Project
+# COMP 7940 Group_Project
 
-1. Change the config.ini
+| Sudent Name | Student ID |
+| :------- | :----- |
+| He yifan     | 25446320    |
+|     |     |
+|     |     |

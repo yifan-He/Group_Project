@@ -111,14 +111,14 @@ async def path_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Please send your current location."
     )
 
-# handle location messages
+# Handle location messages
 async def location_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = context.user_data.get("mode")
     location = update.message.location
     latitude = location.latitude
     longitude = location.longitude
 
-    # ask for restaurant recommendations after receiving location for /food
+    # Ask for restaurant recommendations after receiving location for /food
     if mode == "food_wait_location":
         context.user_data["mode"] = None
 
@@ -146,7 +146,7 @@ Keep it clear and simple.
         )
         return
 
-    # ask for destination after receiving location for /path
+    # Ask for destination after receiving location for /path
     if mode == "path_wait_location":
         context.user_data["path_location"] = {
             "latitude": latitude,
@@ -160,7 +160,7 @@ Keep it clear and simple.
 
     await update.message.reply_text("Location received. Please run /food or /path first.")
 
-# handle text messages
+# Handle text messages
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # await update.message.reply_text(response)
     logging.info("UPDATE: " + str(update))
@@ -210,13 +210,13 @@ Keep it clear and short.
 
     prompt = user_msg
 
-    # submit the prompt to ChatGPT
+    # Submit the prompt to ChatGPT
     response = gpt.submit(prompt)
 
-    # send the response
+    # Send the response
     await loading_message.edit_text(response)
 
-    # log the conversation
+    # Log the conversation
     redis_logger.save_chat_log(
         user_id=update.effective_user.id,
         user_msg=update.message.text,
