@@ -6,10 +6,10 @@ import os
 class ChatGPT:
     def __init__(self, config):
         # Read API configuration values from the ini file
-        api_key = os.getenv("CHATGPT_API_KEY") or config.get("CHATGPT", "API_KEY", fallback="")
-        base_url = os.getenv("CHATGPT_BASE_URL") or config.get("CHATGPT", "BASE_URL", fallback="")
+        api_key = os.getenv("CHATGPT_KEY") or config.get("CHATGPT", "API_KEY", fallback="")
+        base_url = os.getenv("CHATGPT_URL") or config.get("CHATGPT", "BASE_URL", fallback="")
         model = os.getenv("CHATGPT_MODEL") or config.get("CHATGPT", "MODEL", fallback="")
-        api_ver = os.getenv("CHATGPT_API_VER") or config.get("CHATGPT", "API_VER", fallback="")
+        api_ver = os.getenv("CHATGPT_VER") or config.get("CHATGPT", "API_VER", fallback="")
 
         # Construct the full REST endpoint URL for chat completions
         self.url = f'{base_url}/deployments/{model}/chat/completions?api-version={api_ver}'

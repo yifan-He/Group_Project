@@ -4,6 +4,4 @@ services:
   bot:
     image: ${IMAGE_NAME}:latest
     container_name: chatbot-bot
-    volumes:
-      - ./config.ini:/Group_Project/config.ini:ro
     restart: unless-stopped
