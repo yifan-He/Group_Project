@@ -14,6 +14,7 @@ from telegram.ext import (
 )
 import configparser
 import logging
+import os
 from ChatGPT_HKBU import ChatGPT
 from redis_logger import RedisLogger
 
@@ -43,12 +44,11 @@ def main():
     logging.info("INIT: Loading configuration...")
     redis_logger.save_system_log("INFO", "INIT: Loading configuration...")
     
-
-
     # Create an Application for your bot
     logging.info("INIT: Connecting the Telegram bot...")
     redis_logger.save_system_log("INFO", "INIT: Connecting the Telegram bot...")
-    app = ApplicationBuilder().token(config["TELEGRAM"]["ACCESS_TOKEN"]).build()
+    telegram_token = os.getenv("TELEGRAM_TOKEN") or config.get("TELEGRAM", "ACCESS_TOKEN", fallback="")
+    app = ApplicationBuilder().token(telegram_token).build()
 
     # Register message handlers
     logging.info("INIT: Registering the message handler...")
@@ -68,6 +68,7 @@ def main():
     redis_logger.save_system_log("INFO", "INIT: Initialization done!")
     app.run_polling()
 
+# Generate the guide message content for /start command
 def guide_message(user_name: str) -> str:
     return f"""👋 Hi {user_name}！Welcome to use the Travel Assistance～
 
@@ -153,7 +154,7 @@ Keep it clear and simple.
         }
         context.user_data["mode"] = "path_wait_destination"
         await update.message.reply_text(
-            "Location received. Now please tell me your DESTINATION.\nExample: Hong Kong Airport"
+            "Location received. Now please tell me your destination.\nExample: Hong Kong Airport"
         )
         return
 

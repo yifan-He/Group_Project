@@ -1,14 +1,15 @@
 import requests
 import configparser
+import os
 
 # A simple client for the ChatGPT REST API
 class ChatGPT:
     def __init__(self, config):
         # Read API configuration values from the ini file
-        api_key = config['CHATGPT']['API_KEY']
-        base_url = config['CHATGPT']['BASE_URL']
-        model = config['CHATGPT']['MODEL']
-        api_ver = config['CHATGPT']['API_VER']
+        api_key = os.getenv("CHATGPT_KEY") or config.get("CHATGPT", "API_KEY", fallback="")
+        base_url = os.getenv("CHATGPT_URL") or config.get("CHATGPT", "BASE_URL", fallback="")
+        model = os.getenv("CHATGPT_MODEL") or config.get("CHATGPT", "MODEL", fallback="")
+        api_ver = os.getenv("CHATGPT_VER") or config.get("CHATGPT", "API_VER", fallback="")
 
         # Construct the full REST endpoint URL for chat completions
         self.url = f'{base_url}/deployments/{model}/chat/completions?api-version={api_ver}'
