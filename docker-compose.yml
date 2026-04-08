@@ -4,4 +4,15 @@ services:
   bot:
     image: ${IMAGE_NAME}:latest
     container_name: chatbot-bot
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - CHATGPT_KEY=${CHATGPT_KEY}
+      - CHATGPT_URL=${CHATGPT_URL}
+      - CHATGPT_MODEL=${CHATGPT_MODEL}
+      - CHATGPT_VER=${CHATGPT_VER}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DECODE_RESPONSES=${REDIS_DECODE_RESPONSES}
     restart: unless-stopped
