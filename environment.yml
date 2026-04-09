@@ -1,0 +1,12 @@
+name: 7940-pj
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - configparser
+      - python-telegram-bot==22.5
+      - urllib3==2.6.2
+      - redis==5.2.1
+      - requests==2.32.3

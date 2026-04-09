@@ -1,0 +1,38 @@
+# Secrets and local config
+config.ini
+.env
+.env.*
+
+# Python cache and artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Conda
+.conda/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and local runtime files
+*.log
+*.pid
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
