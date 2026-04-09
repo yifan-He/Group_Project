@@ -40,6 +40,8 @@ jobs:
       REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
       REDIS_DECODE_RESPONSES: ${{ secrets.REDIS_DECODE_RESPONSES }}
       BOT_WEBHOOK_SECRET: ${{ secrets.BOT_WEBHOOK_SECRET }}
+      BOT_ADMIN_USER_IDS: ${{ secrets.BOT_ADMIN_USER_IDS }}
+      BOT_ADMIN_CHAT_IDS: ${{ secrets.BOT_ADMIN_CHAT_IDS }}
 
     steps:
       - name: Checkout
@@ -90,6 +92,8 @@ jobs:
           BOT_REGISTER_WEBHOOK=True
           BOT_EXTERNAL_WEBHOOK_URL=https://${EC2_HOST}:8443/telegram-webhook
           BOT_WEBHOOK_SECRET=${BOT_WEBHOOK_SECRET}
+          BOT_ADMIN_USER_IDS=${BOT_ADMIN_USER_IDS}
+          BOT_ADMIN_CHAT_IDS=${BOT_ADMIN_CHAT_IDS}
           EOF
 
       - name: Upload deployment files

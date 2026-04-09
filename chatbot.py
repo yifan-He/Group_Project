@@ -25,6 +25,7 @@ gpt = None
 redis_logger = None
 app_started_at = None
 bot_runtime_config = {}
+admin_access_config = {"enabled": False, "user_ids": set(), "chat_ids": set()}
 
 
 def _safe_metric_call(method_name, *args):
@@ -64,6 +65,70 @@ def clear_user_state(update: Update):
     if user_id is None or chat_id is None:
         return
     _safe_metric_call("clear_user_state", user_id, chat_id)
+
+
+def _parse_id_allowlist(raw_value):
+    values = set()
+    for part in str(raw_value or "").replace(";", ",").split(","):
+        item = part.strip()
+        if not item:
+            continue
+        try:
+            values.add(int(item))
+        except ValueError:
+            logging.warning("Ignoring invalid admin allowlist value: %s", item)
+    return values
+
+
+def load_admin_access_config(config):
+    user_ids = _parse_id_allowlist(
+        os.getenv("BOT_ADMIN_USER_IDS")
+        or config.get("BOT", "ADMIN_USER_IDS", fallback="")
+    )
+    chat_ids = _parse_id_allowlist(
+        os.getenv("BOT_ADMIN_CHAT_IDS")
+        or config.get("BOT", "ADMIN_CHAT_IDS", fallback="")
+    )
+    enabled = bool(user_ids or chat_ids)
+    return {
+        "enabled": enabled,
+        "user_ids": user_ids,
+        "chat_ids": chat_ids,
+    }
+
+
+def is_admin_allowed(update: Update):
+    if not admin_access_config.get("enabled"):
+        return True
+
+    user_id, chat_id = _user_scope(update)
+    if user_id is not None and user_id in admin_access_config["user_ids"]:
+        return True
+    if chat_id is not None and chat_id in admin_access_config["chat_ids"]:
+        return True
+    return False
+
+
+async def enforce_admin_access(update: Update, command_name: str):
+    if is_admin_allowed(update):
+        return True
+
+    user_id, chat_id = _user_scope(update)
+    message = "This command is restricted to bot administrators."
+    if update.message:
+        await update.message.reply_text(message)
+    logging.warning(
+        "ADMIN: Rejected %s for user_id=%s chat_id=%s",
+        command_name,
+        user_id,
+        chat_id,
+    )
+    if redis_logger is not None:
+        redis_logger.save_system_log(
+            "WARNING",
+            f"ADMIN: Rejected {command_name} for user_id={user_id} chat_id={chat_id}",
+        )
+    return False
 
 
 def get_bot_runtime_config(config):
@@ -329,6 +394,7 @@ def create_application(telegram_token):
 def main():
     global app_started_at
     global bot_runtime_config
+    global admin_access_config
     config = configparser.ConfigParser()
     config.read("config.ini")
     
@@ -340,6 +406,7 @@ def main():
     global gpt
     gpt = ChatGPT(config)
     bot_runtime_config = get_bot_runtime_config(config)
+    admin_access_config = load_admin_access_config(config)
     app_started_at = datetime.now(timezone.utc)
     
     # Configure logging so you can see initialization and error messages
@@ -414,11 +481,15 @@ async def start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     del context
+    if not await enforce_admin_access(update, "/status"):
+        return
     await update.message.reply_text(build_status_message())
 
 
 async def cost_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     del context
+    if not await enforce_admin_access(update, "/cost"):
+        return
     await update.message.reply_text(build_cost_message())
 
 
