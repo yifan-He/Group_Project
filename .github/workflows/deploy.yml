@@ -1,23 +1,57 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      CHATGPT_KEY: ${{ secrets.CHATGPT_KEY }}
+      CHATGPT_URL: ${{ secrets.CHATGPT_URL }}
+      CHATGPT_MODEL: ${{ secrets.CHATGPT_MODEL }}
+      CHATGPT_VER: ${{ secrets.CHATGPT_VER }}
+      REDIS_HOST: ${{ secrets.REDIS_HOST }}
+      REDIS_PORT: ${{ secrets.REDIS_PORT }}
+      REDIS_USERNAME: ${{ secrets.REDIS_USERNAME }}
+      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+      REDIS_DECODE_RESPONSES: ${{ secrets.REDIS_DECODE_RESPONSES }}
+      BOT_WEBHOOK_SECRET: ${{ secrets.BOT_WEBHOOK_SECRET }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -25,23 +59,51 @@ jobs:
           context: .
           file: ./docker_file
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/chatbot:latest
+          tags: ${{ env.DOCKERHUB_USERNAME }}/chatbot:latest
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.EC2_KEY }}
 
-      - name: Upload deployment file
+      - name: Add EC2 host to known_hosts
         run: |
-          ssh -o StrictHostKeyChecking=no "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "mkdir -p ~/group_project"
-          scp -o StrictHostKeyChecking=no docker-compose.yml "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/group_project/"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Prepare deployment env file
+        run: |
+          cat > .env.deploy <<EOF
+          IMAGE_NAME=${DOCKERHUB_USERNAME}/chatbot
+          TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+          CHATGPT_KEY=${CHATGPT_KEY}
+          CHATGPT_URL=${CHATGPT_URL}
+          CHATGPT_MODEL=${CHATGPT_MODEL}
+          CHATGPT_VER=${CHATGPT_VER}
+          REDIS_HOST=${REDIS_HOST}
+          REDIS_PORT=${REDIS_PORT}
+          REDIS_USERNAME=${REDIS_USERNAME}
+          REDIS_PASSWORD=${REDIS_PASSWORD}
+          REDIS_DECODE_RESPONSES=${REDIS_DECODE_RESPONSES}
+          BOT_REGISTER_WEBHOOK=True
+          BOT_EXTERNAL_WEBHOOK_URL=https://${EC2_HOST}:8443/telegram-webhook
+          BOT_WEBHOOK_SECRET=${BOT_WEBHOOK_SECRET}
+          EOF
+
+      - name: Upload deployment files
+        run: |
+          ssh "${EC2_USER}@${EC2_HOST}" "mkdir -p ~/group_project/nginx ~/group_project/certs ~/group_project/redis_log_archive"
+          scp docker-compose.yml docker-compose.ec2-webhook.yml "${EC2_USER}@${EC2_HOST}:~/group_project/"
+          scp nginx/ec2-webhook.conf "${EC2_USER}@${EC2_HOST}:~/group_project/nginx/"
+          scp .env.deploy "${EC2_USER}@${EC2_HOST}:~/group_project/.env"
 
       - name: Deploy application
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh "${EC2_USER}@${EC2_HOST}" <<EOF
           set -e
-          mkdir -p ~/group_project
+          mkdir -p ~/group_project/nginx ~/group_project/certs ~/group_project/redis_log_archive
           cd ~/group_project
 
           if ! command -v docker >/dev/null 2>&1; then
@@ -55,21 +117,93 @@ jobs:
             sudo dnf install -y docker-compose
           fi
 
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          export IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/chatbot"
-          export TELEGRAM_TOKEN="${{ secrets.TELEGRAM_TOKEN }}"
-          export CHATGPT_KEY="${{ secrets.CHATGPT_KEY }}"
-          export CHATGPT_URL="${{ secrets.CHATGPT_URL }}"
-          export CHATGPT_MODEL="${{ secrets.CHATGPT_MODEL }}"
-          export CHATGPT_VER="${{ secrets.CHATGPT_VER }}"
-          export REDIS_HOST="${{ secrets.REDIS_HOST }}"
-          export REDIS_PORT="${{ secrets.REDIS_PORT }}"
-          export REDIS_USERNAME="${{ secrets.REDIS_USERNAME }}"
-          export REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}"
-          export REDIS_DECODE_RESPONSES="${{ secrets.REDIS_DECODE_RESPONSES }}"
-          docker-compose -f docker-compose.yml config
-          docker-compose -f docker-compose.yml pull
-          docker-compose -f docker-compose.yml up -d --remove-orphans
-          docker-compose -f docker-compose.yml ps
+          if ! command -v openssl >/dev/null 2>&1; then
+            sudo dnf install -y openssl
+          fi
+
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+
+          if [ ! -f certs/webhook.key ] || [ ! -f certs/webhook.crt ]; then
+            openssl req -x509 -nodes -newkey rsa:2048 \
+              -keyout certs/webhook.key \
+              -out certs/webhook.crt \
+              -days 365 \
+              -subj "/CN=${EC2_HOST}" \
+              -addext "subjectAltName=DNS:${EC2_HOST}"
+          fi
+
+          docker-compose -f docker-compose.yml down || true
+          docker rm -f chatbot-bot >/dev/null 2>&1 || true
+
+          docker-compose -f docker-compose.ec2-webhook.yml config
+          docker-compose -f docker-compose.ec2-webhook.yml pull
+          docker-compose -f docker-compose.ec2-webhook.yml up -d --remove-orphans
+          docker-compose -f docker-compose.ec2-webhook.yml ps
           docker image prune -f
           EOF
+
+      - name: Run public health smoke check
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import ssl
+          import time
+          import urllib.request
+
+          url = f"https://{os.environ['EC2_HOST']}:8443/healthz"
+          context = ssl._create_unverified_context()
+          last_error = None
+
+          for attempt in range(1, 7):
+              try:
+                  with urllib.request.urlopen(url, context=context, timeout=15) as response:
+                      payload = json.loads(response.read().decode("utf-8"))
+                  if not payload.get("ok"):
+                      raise RuntimeError(f"Health payload not ok: {payload}")
+                  print(payload)
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  print(f"Attempt {attempt} failed: {exc}")
+                  time.sleep(5)
+          else:
+              raise SystemExit(f"Health check failed: {last_error}")
+          PY
+
+      - name: Verify webhook registration
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          expected_url = f"https://{os.environ['EC2_HOST']}:8443/telegram-webhook"
+          api_url = f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/getWebhookInfo"
+
+          with urllib.request.urlopen(api_url, timeout=20) as response:
+              payload = json.loads(response.read().decode("utf-8"))
+
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+          result = payload.get("result", {})
+          if result.get("url") != expected_url:
+              raise SystemExit(f"Unexpected webhook URL: {result.get('url')}")
+          if not result.get("has_custom_certificate"):
+              raise SystemExit("Webhook is missing custom certificate")
+          PY
+
+      - name: Show recent logs on failure
+        if: failure()
+        run: |
+          ssh "${EC2_USER}@${EC2_HOST}" <<EOF
+          cd ~/group_project
+          docker-compose -f docker-compose.ec2-webhook.yml ps || true
+          docker logs chatbot-ec2-nginx --tail 80 || true
+          docker logs chatbot-bot-a --tail 80 || true
+          docker logs chatbot-bot-b --tail 80 || true
+          EOF
+
+      - name: Remove temporary deploy env file
+        if: always()
+        run: rm -f .env.deploy
