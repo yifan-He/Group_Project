@@ -30,6 +30,7 @@ env/
 # Logs and local runtime files
 *.log
 *.pid
+redis_log_archive/
 
 # IDE and OS files
 .idea/
