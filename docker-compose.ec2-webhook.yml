@@ -22,6 +22,8 @@ services:
       - BOT_REGISTER_WEBHOOK=${BOT_REGISTER_WEBHOOK}
       - BOT_EXTERNAL_WEBHOOK_URL=${BOT_EXTERNAL_WEBHOOK_URL}
       - BOT_WEBHOOK_SECRET=${BOT_WEBHOOK_SECRET}
+      - BOT_ADMIN_USER_IDS=${BOT_ADMIN_USER_IDS}
+      - BOT_ADMIN_CHAT_IDS=${BOT_ADMIN_CHAT_IDS}
       - BOT_WEBHOOK_PUBLIC_CERT_PATH=/Group_Project/certs/webhook.crt
     volumes:
       - ./redis_log_archive:/Group_Project/redis_log_archive
@@ -51,6 +53,8 @@ services:
       - BOT_REGISTER_WEBHOOK=False
       - BOT_EXTERNAL_WEBHOOK_URL=${BOT_EXTERNAL_WEBHOOK_URL}
       - BOT_WEBHOOK_SECRET=${BOT_WEBHOOK_SECRET}
+      - BOT_ADMIN_USER_IDS=${BOT_ADMIN_USER_IDS}
+      - BOT_ADMIN_CHAT_IDS=${BOT_ADMIN_CHAT_IDS}
     volumes:
       - ./redis_log_archive:/Group_Project/redis_log_archive
     restart: unless-stopped

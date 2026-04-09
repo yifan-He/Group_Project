@@ -28,6 +28,8 @@ services:
       - REDIS_USERNAME=
       - REDIS_PASSWORD=
       - REDIS_DECODE_RESPONSES=True
+      - BOT_ADMIN_USER_IDS=${BOT_ADMIN_USER_IDS}
+      - BOT_ADMIN_CHAT_IDS=${BOT_ADMIN_CHAT_IDS}
     depends_on:
       - redis
     restart: unless-stopped
@@ -53,6 +55,8 @@ services:
       - REDIS_USERNAME=
       - REDIS_PASSWORD=
       - REDIS_DECODE_RESPONSES=True
+      - BOT_ADMIN_USER_IDS=${BOT_ADMIN_USER_IDS}
+      - BOT_ADMIN_CHAT_IDS=${BOT_ADMIN_CHAT_IDS}
     depends_on:
       - redis
     restart: unless-stopped
