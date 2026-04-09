@@ -31,6 +31,7 @@ env/
 *.log
 *.pid
 redis_log_archive/
+certs/
 
 # IDE and OS files
 .idea/

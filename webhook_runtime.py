@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 import signal
 import threading
 import time
@@ -31,6 +32,7 @@ class WebhookRuntimeConfig:
     webhook_secret: str | None = None
     register_webhook: bool = False
     external_webhook_url: str | None = None
+    public_cert_path: str | None = None
 
     def __post_init__(self):
         self.webhook_path = _normalize_path(self.webhook_path)
@@ -59,8 +61,13 @@ class _ApplicationRunner:
                     "external_webhook_url is required when register_webhook is enabled."
                 )
 
+            certificate = None
+            if self.runtime_config.public_cert_path:
+                certificate = Path(self.runtime_config.public_cert_path)
+
             await self.application.bot.set_webhook(
                 url=self.runtime_config.external_webhook_url,
+                certificate=certificate,
                 secret_token=self.runtime_config.webhook_secret,
             )
             LOGGER.info(
@@ -68,6 +75,12 @@ class _ApplicationRunner:
                 self.runtime_config.instance_id,
                 self.runtime_config.external_webhook_url,
             )
+            if certificate:
+                LOGGER.info(
+                    "WEBHOOK: Uploaded certificate for %s from %s",
+                    self.runtime_config.instance_id,
+                    certificate,
+                )
 
         await self.application.start()
 

@@ -1,0 +1,69 @@
+services:
+  bot-a:
+    image: ${IMAGE_NAME}:latest
+    container_name: chatbot-bot-a
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - CHATGPT_KEY=${CHATGPT_KEY}
+      - CHATGPT_URL=${CHATGPT_URL}
+      - CHATGPT_MODEL=${CHATGPT_MODEL}
+      - CHATGPT_VER=${CHATGPT_VER}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DECODE_RESPONSES=${REDIS_DECODE_RESPONSES}
+      - BOT_RUNTIME_MODE=webhook
+      - BOT_INSTANCE_ID=bot-a
+      - BOT_WEBHOOK_LISTEN=0.0.0.0
+      - BOT_WEBHOOK_PORT=8080
+      - BOT_WEBHOOK_PATH=/telegram-webhook
+      - BOT_HEALTH_PATH=/healthz
+      - BOT_REGISTER_WEBHOOK=${BOT_REGISTER_WEBHOOK}
+      - BOT_EXTERNAL_WEBHOOK_URL=${BOT_EXTERNAL_WEBHOOK_URL}
+      - BOT_WEBHOOK_SECRET=${BOT_WEBHOOK_SECRET}
+      - BOT_WEBHOOK_PUBLIC_CERT_PATH=/Group_Project/certs/webhook.crt
+    volumes:
+      - ./redis_log_archive:/Group_Project/redis_log_archive
+      - ./certs:/Group_Project/certs:ro
+    restart: unless-stopped
+
+  bot-b:
+    image: ${IMAGE_NAME}:latest
+    container_name: chatbot-bot-b
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - CHATGPT_KEY=${CHATGPT_KEY}
+      - CHATGPT_URL=${CHATGPT_URL}
+      - CHATGPT_MODEL=${CHATGPT_MODEL}
+      - CHATGPT_VER=${CHATGPT_VER}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_USERNAME=${REDIS_USERNAME}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DECODE_RESPONSES=${REDIS_DECODE_RESPONSES}
+      - BOT_RUNTIME_MODE=webhook
+      - BOT_INSTANCE_ID=bot-b
+      - BOT_WEBHOOK_LISTEN=0.0.0.0
+      - BOT_WEBHOOK_PORT=8080
+      - BOT_WEBHOOK_PATH=/telegram-webhook
+      - BOT_HEALTH_PATH=/healthz
+      - BOT_REGISTER_WEBHOOK=False
+      - BOT_EXTERNAL_WEBHOOK_URL=${BOT_EXTERNAL_WEBHOOK_URL}
+      - BOT_WEBHOOK_SECRET=${BOT_WEBHOOK_SECRET}
+    volumes:
+      - ./redis_log_archive:/Group_Project/redis_log_archive
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: chatbot-ec2-nginx
+    depends_on:
+      - bot-a
+      - bot-b
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./nginx/ec2-webhook.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    restart: unless-stopped

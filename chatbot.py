@@ -98,6 +98,10 @@ def get_bot_runtime_config(config):
         os.getenv("BOT_EXTERNAL_WEBHOOK_URL")
         or config.get("BOT", "EXTERNAL_WEBHOOK_URL", fallback="")
     ).strip() or None
+    webhook_public_cert_path = (
+        os.getenv("BOT_WEBHOOK_PUBLIC_CERT_PATH")
+        or config.get("BOT", "WEBHOOK_PUBLIC_CERT_PATH", fallback="")
+    ).strip() or None
     register_webhook = (
         str(
             os.getenv("BOT_REGISTER_WEBHOOK")
@@ -115,6 +119,7 @@ def get_bot_runtime_config(config):
         "webhook_port": webhook_port,
         "webhook_secret": webhook_secret,
         "external_webhook_url": external_webhook_url,
+        "webhook_public_cert_path": webhook_public_cert_path,
         "register_webhook": register_webhook,
     }
 
@@ -368,6 +373,7 @@ def main():
                 webhook_secret=bot_runtime_config["webhook_secret"],
                 register_webhook=bot_runtime_config["register_webhook"],
                 external_webhook_url=bot_runtime_config["external_webhook_url"],
+                public_cert_path=bot_runtime_config["webhook_public_cert_path"],
             )
             run_local_webhook_application(app, runtime_config)
         else:
