@@ -19,10 +19,12 @@ import time
 from datetime import datetime, timezone
 from ChatGPT_HKBU import ChatGPT
 from redis_logger import RedisLogger
+from webhook_runtime import WebhookRuntimeConfig, run_local_webhook_application
 
 gpt = None
 redis_logger = None
 app_started_at = None
+bot_runtime_config = {}
 
 
 def _safe_metric_call(method_name, *args):
@@ -35,6 +37,86 @@ def _safe_metric_call(method_name, *args):
     except Exception as exc:
         logging.warning("METRIC %s failed: %s", method_name, exc)
         return None
+
+
+def _user_scope(update: Update):
+    chat = update.effective_chat
+    user = update.effective_user
+    return (user.id if user else None, chat.id if chat else None)
+
+
+def get_user_state(update: Update):
+    user_id, chat_id = _user_scope(update)
+    if user_id is None or chat_id is None:
+        return {}
+    return _safe_metric_call("get_user_state", user_id, chat_id) or {}
+
+
+def set_user_state(update: Update, state):
+    user_id, chat_id = _user_scope(update)
+    if user_id is None or chat_id is None:
+        return
+    _safe_metric_call("set_user_state", user_id, chat_id, state)
+
+
+def clear_user_state(update: Update):
+    user_id, chat_id = _user_scope(update)
+    if user_id is None or chat_id is None:
+        return
+    _safe_metric_call("clear_user_state", user_id, chat_id)
+
+
+def get_bot_runtime_config(config):
+    mode = (
+        os.getenv("BOT_RUNTIME_MODE")
+        or config.get("BOT", "RUNTIME_MODE", fallback="polling")
+    ).strip().lower()
+    instance_id = (
+        os.getenv("BOT_INSTANCE_ID") or config.get("BOT", "INSTANCE_ID", fallback="")
+    ).strip() or "bot"
+    webhook_path = (
+        os.getenv("BOT_WEBHOOK_PATH")
+        or config.get("BOT", "WEBHOOK_PATH", fallback="/telegram-webhook")
+    ).strip() or "/telegram-webhook"
+    health_path = (
+        os.getenv("BOT_HEALTH_PATH")
+        or config.get("BOT", "HEALTH_PATH", fallback="/healthz")
+    ).strip() or "/healthz"
+    webhook_listen = (
+        os.getenv("BOT_WEBHOOK_LISTEN")
+        or config.get("BOT", "WEBHOOK_LISTEN", fallback="0.0.0.0")
+    ).strip() or "0.0.0.0"
+    webhook_port = int(
+        os.getenv("BOT_WEBHOOK_PORT")
+        or config.get("BOT", "WEBHOOK_PORT", fallback="8080")
+    )
+    webhook_secret = (
+        os.getenv("BOT_WEBHOOK_SECRET")
+        or config.get("BOT", "WEBHOOK_SECRET", fallback="")
+    ).strip() or None
+    external_webhook_url = (
+        os.getenv("BOT_EXTERNAL_WEBHOOK_URL")
+        or config.get("BOT", "EXTERNAL_WEBHOOK_URL", fallback="")
+    ).strip() or None
+    register_webhook = (
+        str(
+            os.getenv("BOT_REGISTER_WEBHOOK")
+            or config.get("BOT", "REGISTER_WEBHOOK", fallback="False")
+        ).lower()
+        == "true"
+    )
+
+    return {
+        "mode": mode,
+        "instance_id": instance_id,
+        "webhook_path": webhook_path,
+        "health_path": health_path,
+        "webhook_listen": webhook_listen,
+        "webhook_port": webhook_port,
+        "webhook_secret": webhook_secret,
+        "external_webhook_url": external_webhook_url,
+        "register_webhook": register_webhook,
+    }
 
 
 def get_metrics_snapshot():
@@ -134,9 +216,13 @@ def build_status_message():
     route_counts = snapshot["route_counts"]
     route_errors = snapshot["route_errors"]
     last_error = snapshot.get("last_error") or {}
+    runtime_mode = bot_runtime_config.get("mode", "polling")
+    instance_id = bot_runtime_config.get("instance_id", "bot")
 
     lines = [
         "Bot status",
+        f"Runtime mode: {runtime_mode}",
+        f"Instance ID: {instance_id}",
         f"Started at (UTC): {app_started_at.isoformat() if app_started_at else 'Unknown'}",
         f"Uptime: {format_uptime()}",
         f"Redis health: {'OK' if snapshot['redis_ok'] else 'UNAVAILABLE'}",
@@ -217,8 +303,27 @@ def submit_and_track(route_name, prompt):
     _safe_metric_call("record_error", route_name, error_text)
     return response["content"]
 
+def create_application(telegram_token):
+    app = ApplicationBuilder().token(telegram_token).build()
+
+    logging.info("INIT: Registering the message handler...")
+    redis_logger.save_system_log("INFO", "INIT: Registering the message handler...")
+    app.add_handler(MessageHandler(filters.LOCATION, location_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, callback))
+
+    logging.info("INIT: Registering the command handlers...")
+    redis_logger.save_system_log("INFO", "INIT: Registering the command handlers...")
+    app.add_handler(CommandHandler("start", start_callback))
+    app.add_handler(CommandHandler("food", food_callback))
+    app.add_handler(CommandHandler("path", path_callback))
+    app.add_handler(CommandHandler("status", status_callback))
+    app.add_handler(CommandHandler("cost", cost_callback))
+    return app
+
+
 def main():
     global app_started_at
+    global bot_runtime_config
     config = configparser.ConfigParser()
     config.read("config.ini")
     
@@ -229,6 +334,7 @@ def main():
     # Create a ChatGPT client object
     global gpt
     gpt = ChatGPT(config)
+    bot_runtime_config = get_bot_runtime_config(config)
     app_started_at = datetime.now(timezone.utc)
     
     # Configure logging so you can see initialization and error messages
@@ -245,29 +351,27 @@ def main():
     logging.info("INIT: Connecting the Telegram bot...")
     redis_logger.save_system_log("INFO", "INIT: Connecting the Telegram bot...")
     telegram_token = os.getenv("TELEGRAM_TOKEN") or config.get("TELEGRAM", "ACCESS_TOKEN", fallback="")
-    app = ApplicationBuilder().token(telegram_token).build()
-
-    # Register message handlers
-    logging.info("INIT: Registering the message handler...")
-    redis_logger.save_system_log("INFO", "INIT: Registering the message handler...")
-    app.add_handler(MessageHandler(filters.LOCATION, location_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, callback))
-
-    # Register command handlers
-    logging.info("INIT: Registering the command handlers...")
-    redis_logger.save_system_log("INFO", "INIT: Registering the command handlers...")
-    app.add_handler(CommandHandler("start", start_callback))
-    app.add_handler(CommandHandler("food", food_callback))
-    app.add_handler(CommandHandler("path", path_callback))
-    app.add_handler(CommandHandler("status", status_callback))
-    app.add_handler(CommandHandler("cost", cost_callback))
+    app = create_application(telegram_token)
 
     # Start the bot
     logging.info("INIT: Initialization done!")
     redis_logger.save_system_log("INFO", "INIT: Initialization done!")
     archive_path = None
     try:
-        app.run_polling()
+        if bot_runtime_config["mode"] == "webhook":
+            runtime_config = WebhookRuntimeConfig(
+                listen=bot_runtime_config["webhook_listen"],
+                port=bot_runtime_config["webhook_port"],
+                webhook_path=bot_runtime_config["webhook_path"],
+                health_path=bot_runtime_config["health_path"],
+                instance_id=bot_runtime_config["instance_id"],
+                webhook_secret=bot_runtime_config["webhook_secret"],
+                register_webhook=bot_runtime_config["register_webhook"],
+                external_webhook_url=bot_runtime_config["external_webhook_url"],
+            )
+            run_local_webhook_application(app, runtime_config)
+        else:
+            app.run_polling()
     finally:
         archive_path = _safe_metric_call("export_run_archive", "run_polling_exit")
         if archive_path:
@@ -314,7 +418,8 @@ async def cost_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # /food → recommend the top 5 restaurants nearby
 async def food_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["mode"] = "food_wait_location"
+    del context
+    set_user_state(update, {"mode": "food_wait_location"})
     await update.message.reply_text(
         "Please send your current location."
     )
@@ -322,22 +427,24 @@ async def food_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # /path → ask the user for the destination and then provide the fastest route path
 async def path_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["mode"] = "path_wait_location"
-    context.user_data["path_location"] = None
+    del context
+    set_user_state(update, {"mode": "path_wait_location", "path_location": None})
     await update.message.reply_text(
         "Please send your current location."
     )
 
 # Handle location messages
 async def location_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    mode = context.user_data.get("mode")
+    del context
+    user_state = get_user_state(update)
+    mode = user_state.get("mode")
     location = update.message.location
     latitude = location.latitude
     longitude = location.longitude
 
     # Ask for restaurant recommendations after receiving location for /food
     if mode == "food_wait_location":
-        context.user_data["mode"] = None
+        clear_user_state(update)
 
         loading_msg = await update.message.reply_text(
             "Finding the top 5 restaurants nearby for you..."
@@ -365,11 +472,16 @@ Keep it clear and simple.
 
     # Ask for destination after receiving location for /path
     if mode == "path_wait_location":
-        context.user_data["path_location"] = {
-            "latitude": latitude,
-            "longitude": longitude,
-        }
-        context.user_data["mode"] = "path_wait_destination"
+        set_user_state(
+            update,
+            {
+                "mode": "path_wait_destination",
+                "path_location": {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
+            },
+        )
         await update.message.reply_text(
             "Location received. Now please tell me your destination.\nExample: Hong Kong Airport"
         )
@@ -385,23 +497,23 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Get the user's message
     user_msg = update.message.text
+    user_state = get_user_state(update)
 
     # Check if we are waiting for the destination after receiving location for /path
-    if context.user_data.get("mode") == "path_wait_destination":
+    if user_state.get("mode") == "path_wait_destination":
         destination = (user_msg or "").strip()
-        path_location = context.user_data.get("path_location")
+        path_location = user_state.get("path_location")
 
         if not destination:
             await loading_message.edit_text("Destination is empty. Please send your destination.")
             return
 
         if not path_location:
-            context.user_data["mode"] = None
+            clear_user_state(update)
             await loading_message.edit_text("Location is missing. Please run /path again.")
             return
 
-        context.user_data["mode"] = None
-        context.user_data["path_location"] = None
+        clear_user_state(update)
 
         prompt = f"""
 You are a travel concierge.

@@ -10,6 +10,7 @@ class RedisLogger:
     ROUTES = ("food", "path", "chat")
     LOCAL_ARCHIVE_DIRNAME = "redis_log_archive"
     LOCAL_RETENTION_DAYS = 7
+    DEFAULT_SESSION_TTL_SECONDS = 3600
 
     def __init__(self, config):
         decode_responses = (
@@ -28,8 +29,20 @@ class RedisLogger:
             password=os.getenv("REDIS_PASSWORD") or config.get("REDIS", "PASSWORD", fallback=""),
             decode_responses=decode_responses,
         )
-        self.archive_dir = Path(__file__).resolve().parent / self.LOCAL_ARCHIVE_DIRNAME
-        self.archive_dir.mkdir(exist_ok=True)
+        self.instance_id = (
+            os.getenv("BOT_INSTANCE_ID") or config.get("BOT", "INSTANCE_ID", fallback="")
+        ).strip() or None
+        self.session_ttl_seconds = self._to_int(
+            os.getenv("BOT_SESSION_TTL_SECONDS")
+            or config.get(
+                "BOT",
+                "SESSION_TTL_SECONDS",
+                fallback=str(self.DEFAULT_SESSION_TTL_SECONDS),
+            )
+        ) or self.DEFAULT_SESSION_TTL_SECONDS
+        archive_root = Path(__file__).resolve().parent / self.LOCAL_ARCHIVE_DIRNAME
+        self.archive_dir = archive_root / self.instance_id if self.instance_id else archive_root
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
         self.cleanup_local_archives()
 
         # Fail fast when Redis is unreachable so issues are visible at startup.
@@ -64,6 +77,10 @@ class RedisLogger:
     @staticmethod
     def _route_error_key(route_name):
         return f"metrics:route:{route_name}:errors"
+
+    @staticmethod
+    def _session_key(user_id, chat_id):
+        return f"session:chat:{chat_id}:user:{user_id}"
 
     @staticmethod
     def _json_loads_safe(value):
@@ -103,6 +120,8 @@ class RedisLogger:
         file_path = self.archive_dir / f"{prefix}_{datetime.now().strftime('%Y-%m-%d')}.jsonl"
         record = dict(payload)
         record.setdefault("archived_at", self._now_iso())
+        if self.instance_id:
+            record.setdefault("instance_id", self.instance_id)
         with file_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
         return str(file_path)
@@ -128,6 +147,7 @@ class RedisLogger:
             ]
 
         snapshot = {
+            "instance_id": self.instance_id,
             "reason": reason,
             "exported_at": self._now_iso(),
             "system_log_key": system_log_key,
@@ -152,6 +172,8 @@ class RedisLogger:
             "level": level,  # INFO / ERROR / WARNING
             "message": message,
         }
+        if self.instance_id:
+            log["instance_id"] = self.instance_id
 
         log_json = json.dumps(log, ensure_ascii=False)
 
@@ -180,6 +202,8 @@ class RedisLogger:
             "user_msg": user_msg,
             "bot_reply": bot_reply,
         }
+        if self.instance_id:
+            log["instance_id"] = self.instance_id
 
         log_json = json.dumps(log, ensure_ascii=False)
 
@@ -195,6 +219,29 @@ class RedisLogger:
 
         # Keep only the latest 50 logs to prevent unbounded growth
         self.redis_client.ltrim(log_key, -50, -1)
+
+    def get_user_state(self, user_id, chat_id):
+        raw_state = self.redis_client.get(self._session_key(user_id, chat_id))
+        if not raw_state:
+            return {}
+
+        state = self._json_loads_safe(raw_state)
+        return state if isinstance(state, dict) else {}
+
+    def set_user_state(self, user_id, chat_id, state, ttl_seconds=None):
+        if not state:
+            self.clear_user_state(user_id, chat_id)
+            return
+
+        ttl_seconds = self._to_int(ttl_seconds) or self.session_ttl_seconds
+        self.redis_client.set(
+            self._session_key(user_id, chat_id),
+            json.dumps(state, ensure_ascii=False),
+            ex=max(1, ttl_seconds),
+        )
+
+    def clear_user_state(self, user_id, chat_id):
+        self.redis_client.delete(self._session_key(user_id, chat_id))
 
     def record_request(self, route_name):
         pipeline = self.redis_client.pipeline()
@@ -237,6 +284,7 @@ class RedisLogger:
                 "time": self._now_iso(),
                 "route": route_name,
                 "error": error_message,
+                "instance_id": self.instance_id,
             },
             ensure_ascii=False,
         )

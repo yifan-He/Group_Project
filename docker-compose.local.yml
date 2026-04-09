@@ -1,9 +1,72 @@
 version: '3.8'
 
 services:
-  bot:
-    image: ${IMAGE_NAME}:latest
-    container_name: chatbot-bot
+  redis:
+    image: redis:7-alpine
+    container_name: chatbot-local-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  bot-a:
+    build:
+      context: .
+      dockerfile: docker_file
+    container_name: chatbot-bot-a
     volumes:
       - ./config.ini:/Group_Project/config.ini:ro
+      - ./redis_log_archive:/Group_Project/redis_log_archive
+    environment:
+      - BOT_RUNTIME_MODE=webhook
+      - BOT_INSTANCE_ID=bot-a
+      - BOT_WEBHOOK_LISTEN=0.0.0.0
+      - BOT_WEBHOOK_PORT=8080
+      - BOT_WEBHOOK_PATH=/telegram-webhook
+      - BOT_HEALTH_PATH=/healthz
+      - BOT_REGISTER_WEBHOOK=False
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_USERNAME=
+      - REDIS_PASSWORD=
+      - REDIS_DECODE_RESPONSES=True
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  bot-b:
+    build:
+      context: .
+      dockerfile: docker_file
+    container_name: chatbot-bot-b
+    volumes:
+      - ./config.ini:/Group_Project/config.ini:ro
+      - ./redis_log_archive:/Group_Project/redis_log_archive
+    environment:
+      - BOT_RUNTIME_MODE=webhook
+      - BOT_INSTANCE_ID=bot-b
+      - BOT_WEBHOOK_LISTEN=0.0.0.0
+      - BOT_WEBHOOK_PORT=8080
+      - BOT_WEBHOOK_PATH=/telegram-webhook
+      - BOT_HEALTH_PATH=/healthz
+      - BOT_REGISTER_WEBHOOK=False
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_USERNAME=
+      - REDIS_PASSWORD=
+      - REDIS_DECODE_RESPONSES=True
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: chatbot-local-nginx
+    depends_on:
+      - bot-a
+      - bot-b
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx/local-webhook.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
