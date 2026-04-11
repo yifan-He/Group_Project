@@ -127,7 +127,7 @@ jobs:
 
           echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
 
-          if [ ! -f certs/webhook.key ] || [ ! -f certs/webhook.crt ]; then
+          if [ ! -f certs/webhook.key ] || [ ! -f certs/webhook.crt ] || ! openssl x509 -in certs/webhook.crt -checkhost "${EC2_HOST}" -noout >/dev/null 2>&1; then
             openssl req -x509 -nodes -newkey rsa:2048 \
               -keyout certs/webhook.key \
               -out certs/webhook.crt \
